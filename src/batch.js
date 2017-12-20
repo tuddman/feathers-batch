@@ -1,5 +1,4 @@
 import async from 'async';
-import commons from 'feathers-commons';
 
 const paramsPositions = {
   find: 0,
@@ -18,18 +17,18 @@ function extend (target, ...others) {
 
 export default function () {
   return {
-    create (data, params, callback) {
+    create (data, params) {
       let type = data.type || 'parallel';
 
       if (!Array.isArray(data.call) || !data.call.length) {
-        return callback(null, { type, results: [] });
+        return new Promise.resolve({ type, results: [] });
       }
 
       // async.series or async.parallel
       let process = async[type];
 
       if (!process) {
-        return callback(new Error(`Processing type "${data.type}" is not supported`));
+        return new Promise.reject(new Error(`Processing type "${data.type}" is not supported`));
       }
 
       let workers = data.call.map(call => {
@@ -39,24 +38,20 @@ export default function () {
         let position = typeof paramsPositions[method] !== 'undefined'
           ? paramsPositions[method] : 1;
 
-        args = commons.getArguments(method, args);
+        return function () {
 
-        return function (callback) {
           let handler = function () {
-            callback(null, Array.prototype.slice.call(arguments));
+            Promise.resolve(Array.prototype.slice.call(arguments));
           };
 
           if (!service) {
-            return handler(new Error(`Service ${path} does not exist`));
+            return new Promise.reject(new Error(`Service ${path} does not exist`));
           }
 
           if (!method || typeof service[method] !== 'function') {
-            return handler(new Error(`Method ${method} on
+            Promise.reject(new Error(`Method ${method} on
               service ${path} does not exist`));
           }
-
-          // getArguments always adds a dummy callback to the end.
-          args[args.length - 1] = handler;
 
           // Put the parameters into `query` and extend with original
           // service parameters (logged in user etc) just like a websocket call
@@ -67,7 +62,13 @@ export default function () {
         };
       });
 
-      process(workers, (error, data) => callback(error, { type, data }));
+      process(workers, (error, data) => return new Promise((resolve, reject) => { 
+		if (error) {
+		  return reject(error);
+		} 
+		return resolve({ type, data });
+	})
+      );
     },
 
     setup (app) {
