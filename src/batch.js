@@ -1,5 +1,4 @@
 import async from 'async';
-import commons from 'feathers-commons';
 
 const paramsPositions = {
   find: 0,
@@ -17,19 +16,19 @@ function extend (target, ...others) {
 }
 
 export default function () {
-  return {
-    create (data, params, callback) {
+  return new Promise((resolve, reject) => {
+    create (data, params) {
       let type = data.type || 'parallel';
 
       if (!Array.isArray(data.call) || !data.call.length) {
-        return callback(null, { type, results: [] });
+        resolve({ type, results: [] });
       }
 
       // async.series or async.parallel
       let process = async[type];
 
       if (!process) {
-        return callback(new Error(`Processing type "${data.type}" is not supported`));
+        reject(new Error(`Processing type "${data.type}" is not supported`));
       }
 
       let workers = data.call.map(call => {
@@ -39,24 +38,19 @@ export default function () {
         let position = typeof paramsPositions[method] !== 'undefined'
           ? paramsPositions[method] : 1;
 
-        args = commons.getArguments(method, args);
+        return new Promise((resolve, reject) => {
 
-        return function (callback) {
           let handler = function () {
-            callback(null, Array.prototype.slice.call(arguments));
+            resolve(Array.prototype.slice.call(arguments));
           };
 
           if (!service) {
-            return handler(new Error(`Service ${path} does not exist`));
+            reject(new Error(`Service ${path} does not exist`));
           }
 
           if (!method || typeof service[method] !== 'function') {
-            return handler(new Error(`Method ${method} on
-              service ${path} does not exist`));
+            reject(new Error(`Method ${method} on service ${path} does not exist`));
           }
-
-          // getArguments always adds a dummy callback to the end.
-          args[args.length - 1] = handler;
 
           // Put the parameters into `query` and extend with original
           // service parameters (logged in user etc) just like a websocket call
@@ -67,7 +61,12 @@ export default function () {
         };
       });
 
-      process(workers, (error, data) => callback(error, { type, data }));
+      process(workers, async data => { 
+		    return { type, data };
+      }, (err, foo) => {
+        if (err) throw err
+        console.log(foo)
+      });
     },
 
     setup (app) {
